@@ -1,38 +1,121 @@
+// App.js
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import ReactFlow, {
+  Background,
+  Controls,
+  useNodesState,
+  useEdgesState,
+  Panel,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
 
-// Graph data structure
-class Graph {
-  constructor() {
-    this.nodes = [];
-    this.edges = [];
-  }
+// Custom styling
+const nodeStyle = {
+  padding: '10px',
+  borderRadius: '50%',
+  width: '40px',
+  height: '40px',
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  fontWeight: 'bold',
+  fontSize: '16px',
+  border: '2px solid #333',
+};
 
-  addNode(id, x, y) {
-    this.nodes.push({ id, x, y });
-    return this;
+// Node color based on algorithm state
+const getNodeStyle = (state) => {
+  const baseStyle = { ...nodeStyle };
+  
+  switch (state) {
+    case 'current':
+      return { ...baseStyle, backgroundColor: '#fbbf24', borderColor: '#92400e' };
+    case 'visited':
+      return { ...baseStyle, backgroundColor: '#4ade80', borderColor: '#166534' };
+    case 'stack':
+      return { ...baseStyle, backgroundColor: '#93c5fd', borderColor: '#1e40af' };
+    default:
+      return { ...baseStyle, backgroundColor: '#d1d5db', borderColor: '#374151' };
   }
+};
 
-  addEdge(source, target) {
-    this.edges.push({ source, target });
-    return this;
+// Edge color based on algorithm state
+const getEdgeStyle = (status) => {
+  switch (status) {
+    case 'active':
+      return { stroke: '#3b82f6', strokeWidth: 3, animated: true };
+    case 'visited':
+      return { stroke: '#22c55e', strokeWidth: 2 };
+    default:
+      return { stroke: '#9ca3af', strokeWidth: 1 };
   }
-
-  getNeighbors(nodeId) {
-    return this.edges
-      .filter(edge => edge.source === nodeId)
-      .map(edge => edge.target);
-  }
-}
+};
 
 // DFS algorithm state management
-const useDFS = (graph, startNodeId) => {
+const useDFS = (initialNodes, initialEdges, startNodeId) => {
   const [visited, setVisited] = useState([]);
   const [stack, setStack] = useState([]);
   const [current, setCurrent] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const [isDone, setIsDone] = useState(false);
   const [speed, setSpeed] = useState(500); // ms between steps
+  const [nodes, setNodes] = useState(initialNodes);
+  const [edges, setEdges] = useState(initialEdges);
   const timeoutRef = useRef(null);
+  
+  // Get neighbors of a node
+  const getNeighbors = useCallback((nodeId) => {
+    return edges
+      .filter(edge => edge.source === nodeId)
+      .map(edge => edge.target);
+  }, [edges]);
+
+  // Update node and edge styles based on algorithm state
+  const updateStylesForStep = useCallback(() => {
+    setNodes(prevNodes => 
+      prevNodes.map(node => {
+        let state = 'unvisited';
+        if (node.id === current) {
+          state = 'current';
+        } else if (visited.includes(node.id)) {
+          state = 'visited';
+        } else if (stack.includes(node.id)) {
+          state = 'stack';
+        }
+        
+        return {
+          ...node,
+          style: getNodeStyle(state),
+          data: {
+            ...node.data,
+            state,
+          },
+        };
+      })
+    );
+
+    setEdges(prevEdges =>
+      prevEdges.map(edge => {
+        let status = 'default';
+        if (visited.includes(edge.source) && visited.includes(edge.target)) {
+          status = 'visited';
+        } else if ((current === edge.source && stack.includes(edge.target)) || 
+                  (current === edge.target && stack.includes(edge.source))) {
+          status = 'active';
+        }
+
+        return {
+          ...edge,
+          animated: status === 'active',
+          style: getEdgeStyle(status),
+          data: {
+            ...edge.data,
+            status,
+          },
+        };
+      })
+    );
+  }, [current, stack, visited]);
 
   // Reset algorithm state
   const reset = useCallback(() => {
@@ -42,7 +125,20 @@ const useDFS = (graph, startNodeId) => {
     setIsRunning(false);
     setIsDone(false);
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
-  }, []);
+    
+    setNodes(initialNodes.map(node => ({
+      ...node,
+      style: getNodeStyle('unvisited'),
+      data: { ...node.data, state: 'unvisited' },
+    })));
+    
+    setEdges(initialEdges.map(edge => ({
+      ...edge,
+      animated: false,
+      style: getEdgeStyle('default'),
+      data: { ...edge.data, status: 'default' },
+    })));
+  }, [initialNodes, initialEdges]);
 
   // Initialize DFS
   const startDFS = useCallback(() => {
@@ -66,7 +162,7 @@ const useDFS = (graph, startNodeId) => {
       setVisited(prev => [...prev, node]);
       
       // Get unvisited neighbors
-      const neighbors = graph.getNeighbors(node)
+      const neighbors = getNeighbors(node)
         .filter(neighbor => !visited.includes(neighbor))
         .reverse(); // Reverse to maintain correct DFS order when pushing to stack
       
@@ -81,7 +177,7 @@ const useDFS = (graph, startNodeId) => {
       // Node already visited, pop from stack
       setStack(prev => prev.slice(0, -1));
     }
-  }, [graph, isDone, stack, visited]);
+  }, [getNeighbors, isDone, stack, visited]);
 
   // Auto-run DFS with the set speed
   useEffect(() => {
@@ -90,6 +186,11 @@ const useDFS = (graph, startNodeId) => {
       return () => clearTimeout(timeoutRef.current);
     }
   }, [isRunning, isDone, step, speed, stack]);
+
+  // Update visual styles whenever state changes
+  useEffect(() => {
+    updateStylesForStep();
+  }, [updateStylesForStep, visited, current, stack]);
 
   return {
     visited,
@@ -102,66 +203,10 @@ const useDFS = (graph, startNodeId) => {
     startDFS,
     step,
     reset,
-    setIsRunning
+    setIsRunning,
+    nodes,
+    edges,
   };
-};
-
-// Node component
-const Node = ({ id, x, y, state, onClick }) => {
-  const getNodeColor = () => {
-    switch (state) {
-      case 'current': return 'fill-yellow-400';
-      case 'visited': return 'fill-green-400';
-      case 'stack': return 'fill-blue-300';
-      default: return 'fill-gray-300';
-    }
-  };
-
-  return (
-    <g onClick={onClick}>
-      <circle
-        cx={x}
-        cy={y}
-        r={20}
-        className={`${getNodeColor()} stroke-gray-700 stroke-2 transition-colors duration-300`}
-      />
-      <text
-        x={x}
-        y={y}
-        textAnchor="middle"
-        dominantBaseline="middle"
-        className="font-bold text-sm"
-      >
-        {id}
-      </text>
-    </g>
-  );
-};
-
-// Edge component
-const Edge = ({ source, target, nodes, status }) => {
-  const sourceNode = nodes.find(node => node.id === source);
-  const targetNode = nodes.find(node => node.id === target);
-
-  if (!sourceNode || !targetNode) return null;
-
-  const getEdgeColor = () => {
-    switch (status) {
-      case 'active': return 'stroke-blue-500';
-      case 'visited': return 'stroke-green-500';
-      default: return 'stroke-gray-400';
-    }
-  };
-
-  return (
-    <line
-      x1={sourceNode.x}
-      y1={sourceNode.y}
-      x2={targetNode.x}
-      y2={targetNode.y}
-      className={`${getEdgeColor()} stroke-2 transition-colors duration-300`}
-    />
-  );
 };
 
 // Control Panel component
@@ -175,19 +220,29 @@ const ControlPanel = ({
   speed,
   onSpeedChange 
 }) => {
+  const buttonStyle = {
+    padding: '8px 16px',
+    borderRadius: '4px',
+    border: 'none',
+    color: 'white',
+    cursor: 'pointer',
+    margin: '0 8px',
+    fontWeight: 'bold',
+  };
+
   return (
-    <div className="flex items-center space-x-4 mb-4">
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
       {!isRunning ? (
         <button
           onClick={onStart}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+          style={{ ...buttonStyle, backgroundColor: '#3b82f6' }}
         >
           {isDone ? 'Restart' : 'Start'}
         </button>
       ) : (
         <button
           onClick={onPause}
-          className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600 transition"
+          style={{ ...buttonStyle, backgroundColor: '#f59e0b' }}
         >
           Pause
         </button>
@@ -196,20 +251,25 @@ const ControlPanel = ({
       <button
         onClick={onStep}
         disabled={isRunning || isDone}
-        className={`px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition ${(isRunning || isDone) ? 'opacity-50 cursor-not-allowed' : ''}`}
+        style={{ 
+          ...buttonStyle, 
+          backgroundColor: '#10b981',
+          opacity: (isRunning || isDone) ? 0.5 : 1,
+          cursor: (isRunning || isDone) ? 'not-allowed' : 'pointer'
+        }}
       >
         Step
       </button>
       
       <button
         onClick={onReset}
-        className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition"
+        style={{ ...buttonStyle, backgroundColor: '#ef4444' }}
       >
         Reset
       </button>
       
-      <div className="flex items-center">
-        <span className="mr-2">Speed:</span>
+      <div style={{ display: 'flex', alignItems: 'center', marginLeft: '16px' }}>
+        <span style={{ marginRight: '8px' }}>Speed:</span>
         <input
           type="range"
           min="100"
@@ -217,9 +277,9 @@ const ControlPanel = ({
           step="100"
           value={speed}
           onChange={e => onSpeedChange(Number(e.target.value))}
-          className="w-32"
+          style={{ width: '120px' }}
         />
-        <span className="ml-2">{speed}ms</span>
+        <span style={{ marginLeft: '8px' }}>{speed}ms</span>
       </div>
     </div>
   );
@@ -227,25 +287,33 @@ const ControlPanel = ({
 
 // Legend component
 const Legend = () => {
+  const items = [
+    { color: '#fbbf24', label: 'Current Node' },
+    { color: '#4ade80', label: 'Visited Node' },
+    { color: '#93c5fd', label: 'Node in Stack' },
+    { color: '#d1d5db', label: 'Unvisited Node' },
+  ];
+  
   return (
-    <div className="flex flex-col space-y-2 mb-4">
-      <div className="text-xl font-bold">Legend</div>
-      <div className="flex items-center">
-        <div className="w-6 h-6 rounded-full bg-yellow-400 mr-2"></div>
-        <span>Current Node</span>
-      </div>
-      <div className="flex items-center">
-        <div className="w-6 h-6 rounded-full bg-green-400 mr-2"></div>
-        <span>Visited Node</span>
-      </div>
-      <div className="flex items-center">
-        <div className="w-6 h-6 rounded-full bg-blue-300 mr-2"></div>
-        <span>Node in Stack</span>
-      </div>
-      <div className="flex items-center">
-        <div className="w-6 h-6 rounded-full bg-gray-300 mr-2"></div>
-        <span>Unvisited Node</span>
-      </div>
+    <div style={{ 
+      background: 'white', 
+      padding: '12px', 
+      borderRadius: '8px',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.12)'
+    }}>
+      <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>Legend</div>
+      {items.map((item, index) => (
+        <div key={index} style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+          <div style={{ 
+            width: '16px', 
+            height: '16px', 
+            borderRadius: '50%', 
+            backgroundColor: item.color,
+            marginRight: '8px'
+          }}></div>
+          <span>{item.label}</span>
+        </div>
+      ))}
     </div>
   );
 };
@@ -253,45 +321,53 @@ const Legend = () => {
 // Info Panel component
 const InfoPanel = ({ visited, stack, current }) => {
   return (
-    <div className="flex flex-col space-y-2 mb-4">
-      <div className="text-xl font-bold">Algorithm State</div>
-      <div>
-        <span className="font-bold">Current Node:</span> {current || 'None'}
+    <div style={{ 
+      background: 'white', 
+      padding: '12px', 
+      borderRadius: '8px',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+      marginTop: '12px'
+    }}>
+      <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>Algorithm State</div>
+      <div style={{ marginBottom: '4px' }}>
+        <span style={{ fontWeight: 'bold' }}>Current Node:</span> {current || 'None'}
+      </div>
+      <div style={{ marginBottom: '4px' }}>
+        <span style={{ fontWeight: 'bold' }}>Stack:</span> [{stack.join(', ')}]
       </div>
       <div>
-        <span className="font-bold">Stack:</span> [{stack.join(', ')}]
-      </div>
-      <div>
-        <span className="font-bold">Visited:</span> [{visited.join(', ')}]
+        <span style={{ fontWeight: 'bold' }}>Visited:</span> [{visited.join(', ')}]
       </div>
     </div>
   );
 };
 
 // Main component
-const App = () => {
-  // Create a sample graph
-  const createSampleGraph = () => {
-    const g = new Graph();
-    g.addNode('A', 150, 50)
-     .addNode('B', 75, 150)
-     .addNode('C', 225, 150)
-     .addNode('D', 50, 250)
-     .addNode('E', 150, 250)
-     .addNode('F', 250, 250)
-     .addNode('G', 250, 50);
-    
-    g.addEdge('A', 'B')
-     .addEdge('A', 'C')
-     .addEdge('B', 'D')
-     .addEdge('B', 'E')
-     .addEdge('C', 'E')
-     .addEdge('C', 'F');
-    
-    return g;
+function App() {
+  // Create initial nodes and edges for the graph
+  const createInitialElements = () => {
+    const initialNodes = [
+      { id: 'A', position: { x: 250, y: 50 }, data: { label: 'A' }, style: getNodeStyle('unvisited') },
+      { id: 'B', position: { x: 150, y: 150 }, data: { label: 'B' }, style: getNodeStyle('unvisited') },
+      { id: 'C', position: { x: 350, y: 150 }, data: { label: 'C' }, style: getNodeStyle('unvisited') },
+      { id: 'D', position: { x: 100, y: 250 }, data: { label: 'D' }, style: getNodeStyle('unvisited') },
+      { id: 'E', position: { x: 200, y: 250 }, data: { label: 'E' }, style: getNodeStyle('unvisited') },
+      { id: 'F', position: { x: 400, y: 250 }, data: { label: 'F' }, style: getNodeStyle('unvisited') },
+    ];
+
+    const initialEdges = [
+      { id: 'A-B', source: 'A', target: 'B', style: getEdgeStyle('default') },
+      { id: 'A-C', source: 'A', target: 'C', style: getEdgeStyle('default') },
+      { id: 'B-D', source: 'B', target: 'D', style: getEdgeStyle('default') },
+      { id: 'B-E', source: 'B', target: 'E', style: getEdgeStyle('default') },
+      { id: 'C-E', source: 'C', target: 'E', style: getEdgeStyle('default') },
+      { id: 'C-F', source: 'C', target: 'F', style: getEdgeStyle('default') },
+    ];
+
+    return { initialNodes, initialEdges };
   };
 
-  const [graph] = useState(createSampleGraph());
+  const { initialNodes, initialEdges } = createInitialElements();
   const [startNode, setStartNode] = useState('A');
   
   const {
@@ -305,106 +381,68 @@ const App = () => {
     startDFS,
     step,
     reset,
-    setIsRunning
-  } = useDFS(graph, startNode);
+    setIsRunning,
+    nodes,
+    edges,
+  } = useDFS(initialNodes, initialEdges, startNode);
 
-  const handleNodeClick = (nodeId) => {
+  const handleNodeClick = (event, node) => {
     if (!isRunning && !isDone) {
-      setStartNode(nodeId);
-    }
-  };
-
-  useEffect(() => {
-    if (!isRunning && !isDone) {
+      setStartNode(node.id);
       reset();
     }
-  }, [startNode, reset, isRunning, isDone]);
-
-  const getNodeState = (nodeId) => {
-    if (nodeId === current) return 'current';
-    if (visited.includes(nodeId)) return 'visited';
-    if (stack.includes(nodeId)) return 'stack';
-    return 'unvisited';
-  };
-
-  const getEdgeStatus = (source, target) => {
-    // If both nodes are visited, the edge is visited
-    if (visited.includes(source) && visited.includes(target)) {
-      return 'visited';
-    }
-    // If one node is current and the other is in stack or visited, the edge is active
-    if ((current === source && stack.includes(target)) || 
-        (current === target && stack.includes(source))) {
-      return 'active';
-    }
-    return 'default';
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">Graph DFS Visualization</h1>
+    <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '16px', borderBottom: '1px solid #e5e7eb' }}>
+        <h1 style={{ margin: '0 0 16px 0', fontSize: '24px', fontWeight: 'bold' }}>
+          Graph DFS Visualization
+        </h1>
+        <ControlPanel
+          isRunning={isRunning}
+          isDone={isDone}
+          onStart={startDFS}
+          onStep={step}
+          onReset={reset}
+          onPause={() => setIsRunning(false)}
+          speed={speed}
+          onSpeedChange={setSpeed}
+        />
+      </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="md:col-span-2">
-          <div className="border rounded p-4 bg-white shadow">
-            <svg width="100%" height="300" viewBox="0 0 300 300">
-              {/* Render edges first so they appear behind nodes */}
-              {graph.edges.map((edge, index) => (
-                <Edge
-                  key={`${edge.source}-${edge.target}`}
-                  source={edge.source}
-                  target={edge.target}
-                  nodes={graph.nodes}
-                  status={getEdgeStatus(edge.source, edge.target)}
-                />
-              ))}
-              
-              {/* Render nodes */}
-              {graph.nodes.map(node => (
-                <Node
-                  key={node.id}
-                  id={node.id}
-                  x={node.x}
-                  y={node.y}
-                  state={getNodeState(node.id)}
-                  onClick={() => handleNodeClick(node.id)}
-                />
-              ))}
-            </svg>
-            
-            <div className="text-center mt-2 text-sm text-gray-600">
-              Click on a node to set it as the starting point
-            </div>
-          </div>
-          
-          <ControlPanel
-            isRunning={isRunning}
-            isDone={isDone}
-            onStart={startDFS}
-            onStep={step}
-            onReset={reset}
-            onPause={() => setIsRunning(false)}
-            speed={speed}
-            onSpeedChange={setSpeed}
-          />
+      <div style={{ flex: 1, display: 'flex' }}>
+        <div style={{ flex: 3, position: 'relative' }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodeClick={handleNodeClick}
+            fitView
+            proOptions={{
+              hideAttribution: true,
+            }}
+          >
+            <Background />
+            <Controls />
+            <Panel position="bottom-left">
+              <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '8px' }}>
+                Click on a node to set it as the starting point
+              </div>
+            </Panel>
+          </ReactFlow>
         </div>
         
-        <div className="space-y-4">
-          <div className="border rounded p-4 bg-white shadow">
-            <Legend />
-          </div>
-          
-          <div className="border rounded p-4 bg-white shadow">
-            <InfoPanel 
-              visited={visited}
-              stack={stack}
-              current={current}
-            />
-          </div>
+        <div style={{ flex: 1, padding: '16px', borderLeft: '1px solid #e5e7eb', overflowY: 'auto' }}>
+          <Legend />
+          <InfoPanel 
+            visited={visited}
+            stack={stack}
+            current={current}
+          />
         </div>
       </div>
     </div>
   );
-};
+}
 
 export default App;
