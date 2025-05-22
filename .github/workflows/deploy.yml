@@ -1,0 +1,46 @@
+name: Build and Deploy React App (Atomic)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Install Dependencies
+      run: npm install
+
+    - name: Build React App
+      run: npm run build
+
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+
+    - name: Upload Build to Temp Dir
+      run: |
+        ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "rm -rf /tmp/react-app-tmp && mkdir -p /tmp/react-app-tmp"
+        scp -r build/* ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/react-app-tmp
+
+#    - name: Atomic Swap Build on Server
+#      run: |
+#        ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} <<'EOF'
+#          DEPLOY_DIR="/var/www/react-app"
+#          TMP_DIR="/tmp/react-app-tmp"
+#          mv "$TMP_DIR" "$DEPLOY_DIR"
+#        EOF
+#
