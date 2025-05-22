@@ -39,7 +39,7 @@ jobs:
     - name: Atomic Swap Build on Server
       run: |
         ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} <<'EOF'
-          DEPLOY_DIR="/var/www/react-app-tmp"
+          DEPLOY_DIR="/var/www/"
           TMP_DIR="/tmp/react-app-tmp"
           mv "$TMP_DIR" "$DEPLOY_DIR"
         EOF
