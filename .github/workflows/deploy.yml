@@ -36,11 +36,10 @@ jobs:
         ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "rm -rf /tmp/react-app-tmp && mkdir -p /tmp/react-app-tmp"
         scp -r dist/* ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/react-app-tmp
 
-#    - name: Atomic Swap Build on Server
-#      run: |
-#        ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} <<'EOF'
-#          DEPLOY_DIR="/var/www/react-app"
-#          TMP_DIR="/tmp/react-app-tmp"
-#          mv "$TMP_DIR" "$DEPLOY_DIR"
-#        EOF
-#
+    - name: Atomic Swap Build on Server
+      run: |
+        ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} <<'EOF'
+          DEPLOY_DIR="/var/www/react-app-tmp"
+          TMP_DIR="/tmp/react-app-tmp"
+          mv "$TMP_DIR" "$DEPLOY_DIR"
+        EOF
