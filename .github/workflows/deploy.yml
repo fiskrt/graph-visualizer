@@ -34,7 +34,7 @@ jobs:
     - name: Upload Build to Temp Dir
       run: |
         ssh ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }} "rm -rf /tmp/react-app-tmp && mkdir -p /tmp/react-app-tmp"
-        scp -r build/* ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/react-app-tmp
+        scp -r dist/* ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}:/tmp/react-app-tmp
 
 #    - name: Atomic Swap Build on Server
 #      run: |
